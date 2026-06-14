@@ -6,8 +6,8 @@ import json
 import os
 
 def validar_con_yolo():
-    input_path = os.path.join(os.path.dirname(__file__), "../data/palomas_kazan.json")
-    output_path = os.path.join(os.path.dirname(__file__), "../data/palomas_validadas.json")
+    input_path = os.path.join(os.path.dirname(__file__), "../data/palomas_kazan_v2.json")
+    output_path = os.path.join(os.path.dirname(__file__), "../data/palomas_validadas_v2.json")
 
     with open(input_path) as f:
         observaciones = json.load(f)

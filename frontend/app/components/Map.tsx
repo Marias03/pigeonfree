@@ -4,29 +4,8 @@ import { useEffect } from "react";
 
 const KAZAN_CENTER: [number, number] = [55.8304, 49.0661];
 
-interface Zona {
-  lat: number;
-  lng: number;
-  nombre: string;
-  nivel: "alto" | "medio" | "bajo";
-}
-
-const ZONAS_DEMO: Zona[] = [
-  { lat: 55.7963, lng: 49.1088, nombre: "Plaza de la Libertad", nivel: "alto" },
-  { lat: 55.7987, lng: 49.1221, nombre: "Kremlin de Kazán", nivel: "alto" },
-  { lat: 55.8058, lng: 49.1175, nombre: "Bauman Street", nivel: "medio" },
-  { lat: 55.8134, lng: 49.1043, nombre: "Estación Central", nivel: "alto" },
-  { lat: 55.8201, lng: 49.1302, nombre: "Mercado Central", nivel: "medio" },
-];
-
-const COLOR_NIVEL: Record<string, string> = {
-  alto: "#ef4444",
-  medio: "#f97316",
-  bajo: "#22c55e",
-};
-
 interface Props {
-  mapRef: React.MutableRefObject<any>;
+  mapRef: React.RefObject<any>;
 }
 
 export default function Map({ mapRef }: Props) {
@@ -45,8 +24,9 @@ export default function Map({ mapRef }: Props) {
           "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
       });
 
-      if (mapRef.current) return;
-
+      const container = document.getElementById("map-container");
+      if (mapRef.current || (container && (container as any)._leaflet_id))
+        return;
       const map = L.map("map-container", { zoomControl: false }).setView(
         KAZAN_CENTER,
         13,
@@ -63,21 +43,41 @@ export default function Map({ mapRef }: Props) {
 
       L.control.zoom({ position: "bottomright" }).addTo(map);
 
-      ZONAS_DEMO.forEach((zona) => {
-        const circle = L.circle([zona.lat, zona.lng], {
-          color: COLOR_NIVEL[zona.nivel],
-          fillColor: COLOR_NIVEL[zona.nivel],
-          fillOpacity: 0.2,
-          radius: 150,
-          weight: 2,
-        }).addTo(map);
+      // Cargar zonas reales desde el backend
+      try {
+        const res = await fetch("http://127.0.0.1:8000/zones");
+        const data = await res.json();
 
-        circle.bindPopup(`
-          <strong style="color:#1e293b">${zona.nombre}</strong><br/>
-          <span style="font-size:12px;color:#64748b">Riesgo:</span>
-          <b style="color:${COLOR_NIVEL[zona.nivel]}">${zona.nivel}</b>
-        `);
-      });
+        data.zones.forEach(
+          (zona: {
+            lat: number;
+            lng: number;
+            score: number;
+            nivel: string;
+          }) => {
+            const color =
+              zona.nivel === "alto"
+                ? "#ef4444"
+                : zona.nivel === "medio"
+                  ? "#f97316"
+                  : "#22c55e";
+            const circle = L.circle([zona.lat, zona.lng], {
+              color,
+              fillColor: color,
+              fillOpacity: 0.2,
+              radius: 80,
+              weight: 1.5,
+            }).addTo(map);
+
+            circle.bindPopup(`
+            <strong style="color:#1e293b">Zona de palomas</strong><br/>
+            <span style="font-size:12px;color:#64748b">Score: ${zona.score}</span>
+          `);
+          },
+        );
+      } catch (e) {
+        console.error("Error cargando zonas:", e);
+      }
 
       mapRef.current = map;
     };
