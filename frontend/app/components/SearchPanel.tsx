@@ -53,12 +53,14 @@ export default function SearchPanel({ t, mapRef, routingRef }: Props) {
     }
 
     const L = (await import("leaflet")).default;
-
     if (routingRef.current) {
-      mapRef.current.removeControl(routingRef.current);
+      mapRef.current.eachLayer((layer: any) => {
+        if (layer._path || layer._icon) {
+          mapRef.current.removeLayer(layer);
+        }
+      });
       routingRef.current = null;
     }
-
     try {
       const res = await fetch(
         `http://127.0.0.1:8000/route?from_lat=${from[0]}&from_lng=${from[1]}&to_lat=${to[0]}&to_lng=${to[1]}`,
