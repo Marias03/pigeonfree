@@ -21,11 +21,12 @@ async def geocode(q: str, lang: str = "es"):
     url = "https://geocode-maps.yandex.ru/1.x/"
     params = {
         "apikey": YANDEX_API_KEY,
-        "geocode": q,
+        "geocode": f"{q}, Казань",
         "format": "json",
         "lang": "ru_RU",
-        "bbox": "48.8,55.6~49.4,56.0",
-        "rspn": 1,
+        "ll": "49.1,55.8",
+        "spn": "0.5,0.3",
+      
         "results": 1,
     }
 
