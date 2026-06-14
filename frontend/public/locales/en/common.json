@@ -1,0 +1,20 @@
+{
+  "appName": "PigeonFree",
+  "tagline": "Pigeon-free routes",
+  "systemOnline": "SYSTEM ONLINE",
+  "origin": "Origin",
+  "destination": "Destination",
+  "originPlaceholder": "e.g: kremlin",
+  "destinationPlaceholder": "e.g: station",
+  "calculate": "Calculate pigeon-free route",
+  "calculating": "Calculating...",
+  "riskZones": "Risk zones",
+  "highRisk": "High risk",
+  "mediumRisk": "Medium risk",
+  "safeZone": "Safe zone",
+  "high": "High",
+  "medium": "Medium",
+  "low": "Low",
+  "loading": "Loading map...",
+  "useKeywords": "Use: kremlin, bauman, station, university or market"
+}

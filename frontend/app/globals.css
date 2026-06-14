@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: #f8fafc;
+  color: #1e293b;
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+input {
+  color: #1e293b !important;
+  background: white !important;
+}
+
+input::placeholder {
+  color: #94a3b8 !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  input {
+    color: #1e293b !important;
+    background: white !important;
+  }
+  input::placeholder {
+    color: #94a3b8 !important;
+  }
+}
+
+.leaflet-routing-container {
+  background: white !important;
+  color: #1e293b !important;
+  font-size: 13px;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.leaflet-routing-alt,
+.leaflet-routing-alt h2,
+.leaflet-routing-alt h3,
+.leaflet-routing-alt td {
+  color: #1e293b !important;
+}
+
+@keyframes slowFly {
+  0% {
+    left: 22%;
+    opacity: 1;
+  }
+  95% {
+    left: 78%;
+    opacity: 1;
+  }
+  98% {
+    left: 78%;
+    opacity: 0;
+  }
+  99% {
+    left: 22%;
+    opacity: 0;
+  }
+  100% {
+    left: 22%;
+    opacity: 1;
+  }
+}
+
+@keyframes flap {
+  from {
+    transform: rotate(-20deg);
+  }
+  to {
+    transform: rotate(20deg);
+  }
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}

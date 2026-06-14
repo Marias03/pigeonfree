@@ -1,0 +1,20 @@
+{
+  "appName": "PigeonFree",
+  "tagline": "Rutas sin palomas",
+  "systemOnline": "SISTEMA EN LÍNEA",
+  "origin": "Origen",
+  "destination": "Destino",
+  "originPlaceholder": "ej: kremlin",
+  "destinationPlaceholder": "ej: estacion",
+  "calculate": "Calcular ruta sin palomas",
+  "calculating": "Calculando...",
+  "riskZones": "Zonas de riesgo",
+  "highRisk": "Alto riesgo",
+  "mediumRisk": "Riesgo medio",
+  "safeZone": "Zona segura",
+  "high": "Alto",
+  "medium": "Medio",
+  "low": "Bajo",
+  "loading": "Cargando mapa...",
+  "useKeywords": "Usa: kremlin, bauman, estacion, universidad o mercado"
+}

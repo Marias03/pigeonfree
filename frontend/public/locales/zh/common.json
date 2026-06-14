@@ -1,0 +1,20 @@
+{
+  "appName": "PigeonFree",
+  "tagline": "无鸽子路线",
+  "systemOnline": "系统在线",
+  "origin": "起点",
+  "destination": "终点",
+  "originPlaceholder": "例：克里姆林宫",
+  "destinationPlaceholder": "例：火车站",
+  "calculate": "计算无鸽子路线",
+  "calculating": "计算中...",
+  "riskZones": "风险区域",
+  "highRisk": "高风险",
+  "mediumRisk": "中等风险",
+  "safeZone": "安全区域",
+  "high": "高",
+  "medium": "中",
+  "low": "低",
+  "loading": "加载地图中...",
+  "useKeywords": "使用：kremlin、bauman、estacion、universidad 或 mercado"
+}

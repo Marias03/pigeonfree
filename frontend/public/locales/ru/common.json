@@ -1,0 +1,20 @@
+{
+  "appName": "PigeonFree",
+  "tagline": "Маршруты без голубей",
+  "systemOnline": "СИСТЕМА ОНЛАЙН",
+  "origin": "Откуда",
+  "destination": "Куда",
+  "originPlaceholder": "напр: кремль",
+  "destinationPlaceholder": "напр: вокзал",
+  "calculate": "Рассчитать маршрут без голубей",
+  "calculating": "Вычисление...",
+  "riskZones": "Зоны риска",
+  "highRisk": "Высокий риск",
+  "mediumRisk": "Средний риск",
+  "safeZone": "Безопасная зона",
+  "high": "Высокий",
+  "medium": "Средний",
+  "low": "Низкий",
+  "loading": "Загрузка карты...",
+  "useKeywords": "Используйте: кремль, бауман, вокзал, университет или рынок"
+}

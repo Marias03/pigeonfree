@@ -1,0 +1,5 @@
+ultralytics
+requests
+pillow
+fastapi
+uvicorn

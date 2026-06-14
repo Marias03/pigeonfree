@@ -1,0 +1,7 @@
+yolov8n.pt
+backend/data/
+venv/
+backend/.env
+backend/__pycache__/
+**/__pycache__/
+*.pyc
