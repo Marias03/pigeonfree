@@ -58,9 +58,22 @@ async def geocode(q: str, lang: str = "es"):
 
 @app.get("/zones")
 async def get_zones():
-    result = supabase.table("pigeon_zones").select("lat,lng,score").execute()
+    all_zones = []
+    page_size = 1000
+    offset = 0
+
+    while True:
+        result = supabase.table("pigeon_zones").select("lat,lng,score").range(offset, offset + page_size - 1).execute()
+        batch = result.data
+        if not batch:
+            break
+        all_zones.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+
     zones = []
-    for z in result.data:
+    for z in all_zones:
         score = z["score"]
         if score >= 10:
             nivel = "alto"
@@ -70,6 +83,50 @@ async def get_zones():
             nivel = "bajo"
         zones.append({**z, "nivel": nivel})
     return {"zones": zones}
+
+@app.get("/route")
+async def get_route(
+    from_lat: float,
+    from_lng: float,
+    to_lat: float,
+    to_lng: float,
+):
+    osrm_url = f"http://127.0.0.1:5001/route/v1/foot/{from_lng},{from_lat};{to_lng},{to_lat}"
+    params = {
+        "overview": "full",
+        "geometries": "geojson",
+        "steps": "false",
+    }
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(osrm_url, params=params, timeout=10)
+        osrm_data = resp.json()
+
+    if osrm_data.get("code") != "Ok":
+        return {"error": "No se pudo calcular la ruta"}
+
+    coords = osrm_data["routes"][0]["geometry"]["coordinates"]
+    waypoints = [{"lat": c[1], "lng": c[0]} for c in coords]
+
+    result = supabase.table("pigeon_zones").select("lat,lng,score").gte("score", 5).execute()
+    zonas_peligrosas = result.data
+
+    zonas_cruzadas = 0
+    for wp in waypoints[::5]:
+        for zona in zonas_peligrosas:
+            if abs(wp["lat"] - zona["lat"]) < 0.002 and abs(wp["lng"] - zona["lng"]) < 0.002:
+                zonas_cruzadas += 1
+                break
+
+    nivel_riesgo = "alto" if zonas_cruzadas >= 5 else "medio" if zonas_cruzadas >= 2 else "bajo"
+
+    return {
+        "waypoints": waypoints,
+        "zonas_cruzadas": zonas_cruzadas,
+        "nivel_riesgo": nivel_riesgo,
+        "distancia_m": osrm_data["routes"][0]["distance"],
+        "duracion_s": osrm_data["routes"][0]["duration"],
+    }
 
 @app.get("/health")
 async def health():

@@ -93,3 +93,7 @@ input::placeholder {
     opacity: 0.2;
   }
 }
+
+.leaflet-routing-container {
+  display: none !important;
+}
