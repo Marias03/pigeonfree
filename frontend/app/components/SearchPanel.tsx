@@ -7,9 +7,17 @@ interface Props {
   t: (key: string) => string;
   mapRef: React.RefObject<any>;
   routingRef: React.RefObject<any>;
+  onRutaCalculada?: (waypoints: { lat: number; lng: number }[]) => void;
+  onRutaCancelada?: () => void;
 }
 
-export default function SearchPanel({ t, mapRef, routingRef }: Props) {
+export default function SearchPanel({
+  t,
+  mapRef,
+  routingRef,
+  onRutaCalculada,
+  onRutaCancelada,
+}: Props) {
   const { i18n } = useTranslation();
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
@@ -50,6 +58,7 @@ export default function SearchPanel({ t, mapRef, routingRef }: Props) {
     }
     setLoading(true);
     setRiesgo(null);
+    onRutaCancelada?.();
 
     const from = await geocode(origin);
     const to = await geocode(destination);
@@ -127,6 +136,8 @@ export default function SearchPanel({ t, mapRef, routingRef }: Props) {
       const distanciaKm = (data.distancia_m / 1000).toFixed(1);
       const duracionMin = Math.round(data.duracion_s / 60);
       const prob = data.probabilidad_media || 0;
+
+      onRutaCalculada?.(data.waypoints);
 
       setRiesgo({
         zonas: data.zonas_cruzadas || 0,

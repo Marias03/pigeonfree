@@ -1,14 +1,15 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import SplashScreen from "./components/SplashScreen";
 import LanguageSwitcher from "./components/LanguageSwitcher";
 import SearchPanel from "./components/SearchPanel";
 import ReportButton from "./components/ReportButton";
+import RouteAlert from "./components/RouteAlert";
 
-const Map = dynamic<{ mapRef: React.MutableRefObject<any> }>(
+const Map = dynamic<{ mapRef: React.RefObject<any> }>(
   () => import("./components/Map"),
   {
     ssr: false,
@@ -53,6 +54,18 @@ export default function Home() {
   const { t } = useTranslation("common");
   const mapRef = useRef<any>(null);
   const routingRef = useRef<any>(null);
+  const [zonas, setZonas] = useState<any[]>([]);
+  const [rutaActiva, setRutaActiva] = useState(false);
+  const [routeWaypoints, setRouteWaypoints] = useState<
+    { lat: number; lng: number }[]
+  >([]);
+
+  useEffect(() => {
+    fetch("http://127.0.0.1:8000/zones")
+      .then((r) => r.json())
+      .then((d) => setZonas(d.zones || []))
+      .catch(() => {});
+  }, []);
 
   return (
     <main
@@ -66,7 +79,6 @@ export default function Home() {
     >
       {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
 
-      {/* Sidebar izquierdo */}
       <aside
         style={{
           width: "300px",
@@ -78,7 +90,7 @@ export default function Home() {
           overflow: "hidden",
         }}
       >
-        {/* Header del sidebar */}
+        {/* Header */}
         <div
           style={{
             padding: "12px 16px",
@@ -114,7 +126,6 @@ export default function Home() {
             </span>
           </div>
 
-          {/* Zona de vuelo de la paloma */}
           <div
             style={{
               flex: 1,
@@ -190,7 +201,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Selector de idioma */}
+        {/* Idioma */}
         <div
           style={{
             padding: "8px 16px",
@@ -202,7 +213,20 @@ export default function Home() {
         </div>
 
         {/* Búsqueda */}
-        <SearchPanel t={t} mapRef={mapRef} routingRef={routingRef} />
+        <SearchPanel
+          t={t}
+          mapRef={mapRef}
+          routingRef={routingRef}
+          onRutaCalculada={(waypoints) => {
+            setRouteWaypoints(waypoints);
+            setRutaActiva(true);
+          }}
+          onRutaCancelada={() => {
+            setRutaActiva(false);
+            setRouteWaypoints([]);
+          }}
+        />
+
         <ReportButton mapRef={mapRef} />
 
         {/* Leyenda */}
@@ -306,6 +330,13 @@ export default function Home() {
       <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
         <Map mapRef={mapRef} />
       </div>
+
+      {/* Alertas en tiempo real */}
+      <RouteAlert
+        zonas={zonas}
+        rutaActiva={rutaActiva}
+        routeWaypoints={routeWaypoints}
+      />
     </main>
   );
 }
