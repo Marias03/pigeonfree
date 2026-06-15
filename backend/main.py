@@ -76,12 +76,12 @@ app.add_middleware(
 )
 
 clima_cache = {"data": None, "timestamp": None}
+zones_cache = {"data": None, "timestamp": None}
 
 async def get_clima_actual():
     ahora = datetime.now()
     if clima_cache["timestamp"] and (ahora - clima_cache["timestamp"]).seconds < 1800:
         return clima_cache["data"]
-
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(
@@ -113,15 +113,12 @@ async def get_clima_actual():
 def predecir_riesgo(lat, lng, hora, mes, dia_semana, clima=None):
     if not modelo_palomas:
         return 0.5, "medio"
-
     if not clima:
         clima = {"temperatura": 15.0, "precipitacion": 0.0, "viento": 5.0, "humedad": 70.0}
-
     temp = clima.get("temperatura") or 15.0
     prec = clima.get("precipitacion") or 0.0
     viento = clima.get("viento") or 5.0
     humedad = clima.get("humedad") or 70.0
-
     feats = {
         "dia_semana": dia_semana,
         "es_fin_de_semana": int(dia_semana >= 5),
@@ -134,7 +131,6 @@ def predecir_riesgo(lat, lng, hora, mes, dia_semana, clima=None):
     }
     feats.update(features_temporales(hora, mes))
     feats.update(features_urbanas(lat, lng, urban_features))
-
     df = pd.DataFrame([feats])[modelo_features]
     prob = float(modelo_palomas.predict_proba(df)[0][1])
     nivel = "alto" if prob >= 0.6 else "medio" if prob >= 0.35 else "bajo"
@@ -153,11 +149,9 @@ async def geocode(q: str, lang: str = "es"):
         "results": 1,
     }
     headers = {"User-Agent": "PigeonFree/1.0", "Accept-Language": lang}
-
     async with httpx.AsyncClient() as client:
         resp = await client.get(url, params=params, headers=headers)
         data = resp.json()
-
     try:
         members = data["response"]["GeoObjectCollection"]["featureMember"]
         if not members:
@@ -171,10 +165,13 @@ async def geocode(q: str, lang: str = "es"):
 
 @app.get("/zones")
 async def get_zones():
+    ahora = datetime.now()
+    if zones_cache["timestamp"] and (ahora - zones_cache["timestamp"]).seconds < 300:
+        return zones_cache["data"]
+
     all_zones = []
     page_size = 1000
     offset = 0
-
     while True:
         result = supabase.table("pigeon_zones").select("lat,lng,score").range(offset, offset + page_size - 1).execute()
         batch = result.data
@@ -185,15 +182,10 @@ async def get_zones():
             break
         offset += page_size
 
-    ahora = datetime.now()
     clima = await get_clima_actual()
     zones = []
     for z in all_zones:
-        prob, nivel = predecir_riesgo(
-            z["lat"], z["lng"],
-            ahora.hour, ahora.month, ahora.weekday(),
-            clima
-        )
+        prob, nivel = predecir_riesgo(z["lat"], z["lng"], ahora.hour, ahora.month, ahora.weekday(), clima)
         zones.append({
             "lat": z["lat"],
             "lng": z["lng"],
@@ -201,38 +193,31 @@ async def get_zones():
             "nivel": nivel,
             "probabilidad": round(prob, 3),
         })
-    return {"zones": zones}
+
+    result = {"zones": zones}
+    zones_cache["data"] = result
+    zones_cache["timestamp"] = ahora
+    return result
 
 @app.get("/route")
-async def get_route(
-    from_lat: float,
-    from_lng: float,
-    to_lat: float,
-    to_lng: float,
-):
+async def get_route(from_lat: float, from_lng: float, to_lat: float, to_lng: float):
     osrm_url = f"http://127.0.0.1:5001/route/v1/foot/{from_lng},{from_lat};{to_lng},{to_lat}"
     params = {"overview": "full", "geometries": "geojson", "steps": "false"}
-
     async with httpx.AsyncClient() as client:
         resp = await client.get(osrm_url, params=params, timeout=10)
         osrm_data = resp.json()
-
     if osrm_data.get("code") != "Ok":
         return {"error": "No se pudo calcular la ruta"}
-
     coords = osrm_data["routes"][0]["geometry"]["coordinates"]
     route_waypoints = [{"lat": c[1], "lng": c[0]} for c in coords]
-
     ahora = datetime.now()
     clima = await get_clima_actual()
     probs = []
     for wp in route_waypoints[::5]:
         prob, _ = predecir_riesgo(wp["lat"], wp["lng"], ahora.hour, ahora.month, ahora.weekday(), clima)
         probs.append(prob)
-
     prob_media = float(np.mean(probs)) if probs else 0.5
     nivel_riesgo = "alto" if prob_media >= 0.6 else "medio" if prob_media >= 0.35 else "bajo"
-
     return {
         "waypoints": route_waypoints,
         "probabilidad_media": round(prob_media, 3),
@@ -248,7 +233,6 @@ async def predict_risk(lat: float, lng: float):
     prob, nivel = predecir_riesgo(lat, lng, ahora.hour, ahora.month, ahora.weekday(), clima)
     urban = features_urbanas(lat, lng, urban_features)
     temporal = features_temporales(ahora.hour, ahora.month)
-
     return {
         "lat": lat,
         "lng": lng,
@@ -269,6 +253,19 @@ async def predict_risk(lat: float, lng: float):
 @app.get("/weather")
 async def get_weather():
     return await get_clima_actual()
+
+@app.post("/report")
+async def report_pigeon(lat: float, lng: float):
+    try:
+        supabase.table("pigeon_zones").insert({
+            "lat": lat,
+            "lng": lng,
+            "score": 1,
+        }).execute()
+        zones_cache["timestamp"] = None
+        return {"detectado": True, "mensaje": "¡Paloma reportada! Zona actualizada."}
+    except Exception as e:
+        return {"detectado": False, "mensaje": f"Error: {e}"}
 
 @app.get("/health")
 async def health():

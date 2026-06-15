@@ -27,6 +27,7 @@ export default function Map({ mapRef }: Props) {
       const container = document.getElementById("map-container");
       if (mapRef.current || (container && (container as any)._leaflet_id))
         return;
+
       const map = L.map("map-container", { zoomControl: false }).setView(
         KAZAN_CENTER,
         13,
@@ -43,7 +44,14 @@ export default function Map({ mapRef }: Props) {
 
       L.control.zoom({ position: "bottomright" }).addTo(map);
 
-      // Cargar zonas reales desde el backend
+      map.on("click", (e: any) => {
+        if ((window as any).__pigeonReportMode) {
+          const { lat, lng } = e.latlng;
+          (window as any).__pigeonReportMode = false;
+          (window as any).__pigeonReportCallback?.(lat, lng);
+        }
+      });
+
       try {
         const res = await fetch("http://127.0.0.1:8000/zones");
         const data = await res.json();
@@ -54,6 +62,7 @@ export default function Map({ mapRef }: Props) {
             lng: number;
             score: number;
             nivel: string;
+            probabilidad: number;
           }) => {
             const color =
               zona.nivel === "alto"
@@ -61,25 +70,59 @@ export default function Map({ mapRef }: Props) {
                 : zona.nivel === "medio"
                   ? "#f97316"
                   : "#22c55e";
+
+            const radio =
+              zona.probabilidad >= 0.6
+                ? 120
+                : zona.probabilidad >= 0.35
+                  ? 90
+                  : 60;
+
+            const opacidad = 0.1 + zona.probabilidad * 0.4;
+
             const circle = L.circle([zona.lat, zona.lng], {
               color,
               fillColor: color,
-              fillOpacity: 0.2,
-              radius: 80,
-              weight: 1.5,
+              fillOpacity: opacidad,
+              radius: radio,
+              weight: zona.probabilidad >= 0.6 ? 2 : 1,
             }).addTo(map);
 
+            const porcentaje = Math.round(zona.probabilidad * 100);
+            const emoji =
+              zona.nivel === "alto"
+                ? "🔴"
+                : zona.nivel === "medio"
+                  ? "🟠"
+                  : "🟢";
+
             circle.bindPopup(`
-            <strong style="color:#1e293b">Zona de palomas</strong><br/>
-            <span style="font-size:12px;color:#64748b">Score: ${zona.score}</span>
+            <div style="font-family:sans-serif;min-width:160px">
+              <strong style="color:#1e293b;font-size:13px">${emoji} Zona de palomas</strong><br/>
+              <div style="margin-top:6px">
+                <div style="font-size:11px;color:#64748b">Probabilidad ML</div>
+                <div style="background:#f1f5f9;border-radius:4px;margin-top:3px;overflow:hidden;height:8px">
+                  <div style="background:${color};height:100%;width:${porcentaje}%;transition:width 0.3s"></div>
+                </div>
+                <div style="font-size:12px;font-weight:500;color:${color};margin-top:3px">${porcentaje}% — ${zona.nivel}</div>
+              </div>
+            </div>
           `);
           },
         );
       } catch (e) {
         console.error("Error cargando zonas:", e);
       }
+      // Exponer función para modo reporte
+      (mapRef.current as any) = map;
+      map.on("click", (e: any) => {
+        if ((window as any).__reportMode) {
+          (window as any).__reportCallback?.(e.latlng.lat, e.latlng.lng);
+        }
+      });
 
       mapRef.current = map;
+      window.dispatchEvent(new Event("mapReady"));
     };
 
     initMap();

@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import SplashScreen from "./components/SplashScreen";
 import LanguageSwitcher from "./components/LanguageSwitcher";
 import SearchPanel from "./components/SearchPanel";
+import ReportButton from "./components/ReportButton";
 
 const Map = dynamic<{ mapRef: React.MutableRefObject<any> }>(
   () => import("./components/Map"),
@@ -202,6 +203,7 @@ export default function Home() {
 
         {/* Búsqueda */}
         <SearchPanel t={t} mapRef={mapRef} routingRef={routingRef} />
+        <ReportButton mapRef={mapRef} />
 
         {/* Leyenda */}
         <div
