@@ -4,7 +4,6 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import cross_val_score
-from sklearn.metrics import mean_squared_error
 import pickle
 from math import radians, sin, cos, sqrt, atan2
 
@@ -54,44 +53,45 @@ def cargar_todos_los_datos(urban):
                 })
             except:
                 continue
-        print(f"iNaturalist: {len([r for r in rows])} obs")
+        print(f"iNaturalist: {len(rows)} obs")
     except Exception as e:
         print(f"Error iNaturalist: {e}")
 
-    # eBird
-    try:
-        with open(f"{base}/palomas_ebird.json") as f:
-            ebird = json.load(f)
-        count_before = len(rows)
-        for obs in ebird:
-            if not obs.get("fecha"):
-                continue
-            try:
-                fecha_str = obs["fecha"].split(" ")[0]
-                fecha = pd.to_datetime(fecha_str)
-                hora = obs.get("hora") or 10
-                hora_cat = 0 if hora < 7 else 1 if hora < 12 else 2 if hora < 17 else 3 if hora < 21 else 4
-                lat, lng = obs["lat"], obs["lng"]
-                rows.append({
-                    "lat": lat, "lng": lng,
-                    "hora_categoria": hora_cat,
-                    "dia_semana": fecha.dayofweek,
-                    "mes": fecha.month,
-                    "es_fin_de_semana": 1 if fecha.dayofweek >= 5 else 0,
-                    "es_verano": 1 if fecha.month in [6, 7, 8] else 0,
-                    "parques_cercanos": contar_cercanos(lat, lng, urban.get("parques", [])),
-                    "restaurantes_cercanos": contar_cercanos(lat, lng, urban.get("restaurantes", [])),
-                    "estaciones_cercanas": contar_cercanos(lat, lng, urban.get("estaciones", [])),
-                    "plazas_cercanas": contar_cercanos(lat, lng, urban.get("plazas", [])),
-                    "basura_cercana": contar_cercanos(lat, lng, urban.get("basura", [])),
-                    "mercados_cercanos": contar_cercanos(lat, lng, urban.get("mercados", [])),
-                    "cantidad": obs.get("cantidad") or 1,
-                })
-            except:
-                continue
-        print(f"eBird: {len(rows) - count_before} obs")
-    except Exception as e:
-        print(f"Error eBird: {e}")
+    # eBird reciente + histórico
+    for ebird_file in ["palomas_ebird.json", "palomas_ebird_historic.json"]:
+        try:
+            with open(f"{base}/{ebird_file}") as f:
+                ebird = json.load(f)
+            count_before = len(rows)
+            for obs in ebird:
+                if not obs.get("fecha"):
+                    continue
+                try:
+                    fecha_str = obs["fecha"].split(" ")[0]
+                    fecha = pd.to_datetime(fecha_str)
+                    hora = obs.get("hora") or 10
+                    hora_cat = 0 if hora < 7 else 1 if hora < 12 else 2 if hora < 17 else 3 if hora < 21 else 4
+                    lat, lng = obs["lat"], obs["lng"]
+                    rows.append({
+                        "lat": lat, "lng": lng,
+                        "hora_categoria": hora_cat,
+                        "dia_semana": fecha.dayofweek,
+                        "mes": fecha.month,
+                        "es_fin_de_semana": 1 if fecha.dayofweek >= 5 else 0,
+                        "es_verano": 1 if fecha.month in [6, 7, 8] else 0,
+                        "parques_cercanos": contar_cercanos(lat, lng, urban.get("parques", [])),
+                        "restaurantes_cercanos": contar_cercanos(lat, lng, urban.get("restaurantes", [])),
+                        "estaciones_cercanas": contar_cercanos(lat, lng, urban.get("estaciones", [])),
+                        "plazas_cercanas": contar_cercanos(lat, lng, urban.get("plazas", [])),
+                        "basura_cercana": contar_cercanos(lat, lng, urban.get("basura", [])),
+                        "mercados_cercanos": contar_cercanos(lat, lng, urban.get("mercados", [])),
+                        "cantidad": obs.get("cantidad") or 1,
+                    })
+                except:
+                    continue
+            print(f"{ebird_file}: {len(rows) - count_before} obs")
+        except Exception as e:
+            print(f"Error {ebird_file}: {e}")
 
     df = pd.DataFrame(rows)
     print(f"\nTotal: {len(df)} observaciones")
@@ -111,8 +111,8 @@ def entrenar_modelo(df):
     X = df[features]
     y = df["cantidad"]
 
-    modelo = RandomForestRegressor(n_estimators=200, random_state=42, max_depth=10)
-    
+    modelo = RandomForestRegressor(n_estimators=300, random_state=42, max_depth=12, min_samples_leaf=2)
+
     scores = cross_val_score(modelo, X, y, cv=5, scoring="neg_mean_squared_error")
     rmse_cv = np.sqrt(-scores.mean())
     print(f"RMSE cross-validation: {rmse_cv:.2f}")
@@ -128,17 +128,17 @@ def guardar_modelo(modelo, features):
     base = os.path.join(os.path.dirname(__file__), "../data")
     with open(f"{base}/modelo_palomas_v3.pkl", "wb") as f:
         pickle.dump({"modelo": modelo, "features": features}, f)
-    print(f"\nModelo v3 guardado")
+    print(f"\nModelo v3 guardado ✅")
 
 if __name__ == "__main__":
     print("Cargando features urbanas...")
     urban = cargar_features_urbanas()
     for k, v in urban.items():
         print(f"  {k}: {len(v)} elementos")
-    
+
     print("\nCargando observaciones...")
     df = cargar_todos_los_datos(urban)
-    
+
     print("\nEntrenando modelo...")
     modelo, features = entrenar_modelo(df)
     guardar_modelo(modelo, features)
