@@ -3,12 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client
 from dotenv import load_dotenv
 from datetime import datetime
-from math import radians, sin, cos, sqrt, atan2
+from math import radians, sin, cos, sqrt, atan2, pi
 import httpx
 import os
 import pickle
 import json
 import pandas as pd
+import numpy as np
 
 def distancia_km(lat1, lng1, lat2, lng2):
     R = 6371
@@ -17,8 +18,24 @@ def distancia_km(lat1, lng1, lat2, lng2):
     a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlng/2)**2
     return R * 2 * atan2(sqrt(a), sqrt(1-a))
 
-def contar_cercanos(lat, lng, elementos, radio_km=0.3):
+def contar_cercanos(lat, lng, elementos, radio_km):
     return sum(1 for el in elementos if distancia_km(lat, lng, el["lat"], el["lng"]) < radio_km)
+
+def features_urbanas(lat, lng, urban):
+    feats = {}
+    for tipo in ["parques", "restaurantes", "estaciones", "plazas", "basura", "mercados"]:
+        elementos = urban.get(tipo, [])
+        for radio in [0.1, 0.3, 0.5, 1.0]:
+            feats[f"{tipo}_{int(radio*1000)}m"] = contar_cercanos(lat, lng, elementos, radio)
+    return feats
+
+def features_temporales(hora, mes):
+    return {
+        "hora_sin": sin(2 * pi * hora / 24),
+        "hora_cos": cos(2 * pi * hora / 24),
+        "mes_sin": sin(2 * pi * mes / 12),
+        "mes_cos": cos(2 * pi * mes / 12),
+    }
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
@@ -28,17 +45,17 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-modelo_path = os.path.join(os.path.dirname(__file__), "data/modelo_palomas_v3.pkl")
+modelo_path = os.path.join(os.path.dirname(__file__), "data/modelo_palomas_v4.pkl")
 try:
     with open(modelo_path, "rb") as f:
         modelo_data = pickle.load(f)
         modelo_palomas = modelo_data["modelo"]
         modelo_features = modelo_data["features"]
-    print("✅ Modelo ML v3 cargado")
-except:
+    print("✅ Modelo ML v4 cargado")
+except Exception as e:
     modelo_palomas = None
     modelo_features = []
-    print("⚠️ Modelo ML no encontrado")
+    print(f"⚠️ Modelo ML no encontrado: {e}")
 
 urban_path = os.path.join(os.path.dirname(__file__), "data/urban_features.json")
 try:
@@ -58,15 +75,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def get_urban_counts(lat, lng):
-    return {
-        "parques_cercanos": contar_cercanos(lat, lng, urban_features.get("parques", [])),
-        "restaurantes_cercanos": contar_cercanos(lat, lng, urban_features.get("restaurantes", [])),
-        "estaciones_cercanas": contar_cercanos(lat, lng, urban_features.get("estaciones", [])),
-        "plazas_cercanas": contar_cercanos(lat, lng, urban_features.get("plazas", [])),
-        "basura_cercana": contar_cercanos(lat, lng, urban_features.get("basura", [])),
-        "mercados_cercanos": contar_cercanos(lat, lng, urban_features.get("mercados", [])),
+def predecir_riesgo(lat, lng, hora, mes, dia_semana):
+    if not modelo_palomas:
+        return 0.5, "medio"
+
+    feats = {
+        "dia_semana": dia_semana,
+        "es_fin_de_semana": int(dia_semana >= 5),
     }
+    feats.update(features_temporales(hora, mes))
+    feats.update(features_urbanas(lat, lng, urban_features))
+
+    df = pd.DataFrame([feats])[modelo_features]
+    prob = float(modelo_palomas.predict_proba(df)[0][1])
+    nivel = "alto" if prob >= 0.6 else "medio" if prob >= 0.35 else "bajo"
+    return prob, nivel
 
 @app.get("/geocode")
 async def geocode(q: str, lang: str = "es"):
@@ -80,10 +103,7 @@ async def geocode(q: str, lang: str = "es"):
         "spn": "0.5,0.3",
         "results": 1,
     }
-    headers = {
-        "User-Agent": "PigeonFree/1.0",
-        "Accept-Language": lang,
-    }
+    headers = {"User-Agent": "PigeonFree/1.0", "Accept-Language": lang}
 
     async with httpx.AsyncClient() as client:
         resp = await client.get(url, params=params, headers=headers)
@@ -116,16 +136,20 @@ async def get_zones():
             break
         offset += page_size
 
+    ahora = datetime.now()
     zones = []
     for z in all_zones:
-        score = z["score"]
-        if score >= 10:
-            nivel = "alto"
-        elif score >= 3:
-            nivel = "medio"
-        else:
-            nivel = "bajo"
-        zones.append({**z, "nivel": nivel})
+        prob, nivel = predecir_riesgo(
+            z["lat"], z["lng"],
+            ahora.hour, ahora.month, ahora.weekday()
+        )
+        zones.append({
+            "lat": z["lat"],
+            "lng": z["lng"],
+            "score": z["score"],
+            "nivel": nivel,
+            "probabilidad": round(prob, 3),
+        })
     return {"zones": zones}
 
 @app.get("/route")
@@ -136,11 +160,7 @@ async def get_route(
     to_lng: float,
 ):
     osrm_url = f"http://127.0.0.1:5001/route/v1/foot/{from_lng},{from_lat};{to_lng},{to_lat}"
-    params = {
-        "overview": "full",
-        "geometries": "geojson",
-        "steps": "false",
-    }
+    params = {"overview": "full", "geometries": "geojson", "steps": "false"}
 
     async with httpx.AsyncClient() as client:
         resp = await client.get(osrm_url, params=params, timeout=10)
@@ -152,47 +172,18 @@ async def get_route(
     coords = osrm_data["routes"][0]["geometry"]["coordinates"]
     route_waypoints = [{"lat": c[1], "lng": c[0]} for c in coords]
 
-    result = supabase.table("pigeon_zones").select("lat,lng,score").gte("score", 5).execute()
-    zonas_peligrosas = result.data
-
-    zonas_cruzadas = 0
+    ahora = datetime.now()
+    probs = []
     for wp in route_waypoints[::5]:
-        for zona in zonas_peligrosas:
-            if abs(wp["lat"] - zona["lat"]) < 0.002 and abs(wp["lng"] - zona["lng"]) < 0.002:
-                zonas_cruzadas += 1
-                break
+        prob, _ = predecir_riesgo(wp["lat"], wp["lng"], ahora.hour, ahora.month, ahora.weekday())
+        probs.append(prob)
 
-    nivel_riesgo = "bajo"
-    if modelo_palomas:
-        ahora = datetime.now()
-        hora = ahora.hour
-        hora_cat = 0 if hora < 7 else 1 if hora < 12 else 2 if hora < 17 else 3 if hora < 21 else 4
-
-        features_list = []
-        for wp in route_waypoints[::10]:
-            urban = get_urban_counts(wp["lat"], wp["lng"])
-            features_list.append({
-                "lat_grid": round(wp["lat"] / 0.005) * 0.005,
-                "lng_grid": round(wp["lng"] / 0.005) * 0.005,
-                "hora_categoria": hora_cat,
-                "dia_semana": ahora.weekday(),
-                "mes": ahora.month,
-                "es_fin_de_semana": 1 if ahora.weekday() >= 5 else 0,
-                "es_verano": 1 if ahora.month in [6, 7, 8] else 0,
-                **urban,
-            })
-
-        if features_list:
-            df = pd.DataFrame(features_list)[modelo_features]
-            scores = modelo_palomas.predict(df)
-            riesgo_ml = float(scores.mean())
-            nivel_riesgo = "alto" if riesgo_ml >= 3 else "medio" if riesgo_ml >= 1.5 else "bajo"
-    else:
-        nivel_riesgo = "alto" if zonas_cruzadas >= 5 else "medio" if zonas_cruzadas >= 2 else "bajo"
+    prob_media = float(np.mean(probs)) if probs else 0.5
+    nivel_riesgo = "alto" if prob_media >= 0.6 else "medio" if prob_media >= 0.35 else "bajo"
 
     return {
         "waypoints": route_waypoints,
-        "zonas_cruzadas": zonas_cruzadas,
+        "probabilidad_media": round(prob_media, 3),
         "nivel_riesgo": nivel_riesgo,
         "distancia_m": osrm_data["routes"][0]["distance"],
         "duracion_s": osrm_data["routes"][0]["duration"],
@@ -200,39 +191,25 @@ async def get_route(
 
 @app.get("/predict")
 async def predict_risk(lat: float, lng: float):
-    if not modelo_palomas:
-        return {"error": "Modelo no disponible"}
-
     ahora = datetime.now()
-    hora = ahora.hour
-    hora_cat = 0 if hora < 7 else 1 if hora < 12 else 2 if hora < 17 else 3 if hora < 21 else 4
-
-    urban = get_urban_counts(lat, lng)
-
-    features = pd.DataFrame([{
-        "lat_grid": round(lat / 0.005) * 0.005,
-        "lng_grid": round(lng / 0.005) * 0.005,
-        "hora_categoria": hora_cat,
-        "dia_semana": ahora.weekday(),
-        "mes": ahora.month,
-        "es_fin_de_semana": 1 if ahora.weekday() >= 5 else 0,
-        "es_verano": 1 if ahora.month in [6, 7, 8] else 0,
-        **urban,
-    }])[modelo_features]
-
-    score = float(modelo_palomas.predict(features)[0])
-    nivel = "alto" if score >= 3 else "medio" if score >= 1.5 else "bajo"
+    prob, nivel = predecir_riesgo(lat, lng, ahora.hour, ahora.month, ahora.weekday())
+    urban = features_urbanas(lat, lng, urban_features)
+    temporal = features_temporales(ahora.hour, ahora.month)
 
     return {
         "lat": lat,
         "lng": lng,
-        "score_predicho": round(score, 2),
+        "probabilidad": round(prob, 3),
         "nivel": nivel,
-        "hora": hora,
-        "hora_categoria": hora_cat,
+        "hora": ahora.hour,
         "dia": ahora.strftime("%A"),
-        "es_verano": ahora.month in [6, 7, 8],
-        **urban,
+        "mes": ahora.month,
+        "hora_sin": round(temporal["hora_sin"], 3),
+        "hora_cos": round(temporal["hora_cos"], 3),
+        "restaurantes_1km": urban.get("restaurantes_1000m", 0),
+        "estaciones_1km": urban.get("estaciones_1000m", 0),
+        "basura_1km": urban.get("basura_1000m", 0),
+        "parques_1km": urban.get("parques_1000m", 0),
     }
 
 @app.get("/health")
