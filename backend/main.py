@@ -45,13 +45,13 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-modelo_path = os.path.join(os.path.dirname(__file__), "data/modelo_palomas_v4.pkl")
+modelo_path = os.path.join(os.path.dirname(__file__), "data/modelo_palomas_v5.pkl")
 try:
     with open(modelo_path, "rb") as f:
         modelo_data = pickle.load(f)
         modelo_palomas = modelo_data["modelo"]
         modelo_features = modelo_data["features"]
-    print("✅ Modelo ML v4 cargado")
+    print("✅ Modelo ML v5 cargado")
 except Exception as e:
     modelo_palomas = None
     modelo_features = []
@@ -75,13 +75,62 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def predecir_riesgo(lat, lng, hora, mes, dia_semana):
+clima_cache = {"data": None, "timestamp": None}
+
+async def get_clima_actual():
+    ahora = datetime.now()
+    if clima_cache["timestamp"] and (ahora - clima_cache["timestamp"]).seconds < 1800:
+        return clima_cache["data"]
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": 55.8304,
+                    "longitude": 49.0661,
+                    "current": "temperature_2m,precipitation,rain,snowfall,windspeed_10m,relativehumidity_2m",
+                    "timezone": "Europe/Moscow",
+                },
+                timeout=10,
+            )
+            data = resp.json()
+        current = data.get("current", {})
+        clima = {
+            "temperatura": current.get("temperature_2m", 15.0),
+            "precipitacion": current.get("precipitation", 0.0),
+            "lluvia": current.get("rain", 0.0),
+            "nieve": current.get("snowfall", 0.0),
+            "viento": current.get("windspeed_10m", 5.0),
+            "humedad": current.get("relativehumidity_2m", 70.0),
+        }
+        clima_cache["data"] = clima
+        clima_cache["timestamp"] = ahora
+        return clima
+    except:
+        return {"temperatura": 15.0, "precipitacion": 0.0, "lluvia": 0.0, "nieve": 0.0, "viento": 5.0, "humedad": 70.0}
+
+def predecir_riesgo(lat, lng, hora, mes, dia_semana, clima=None):
     if not modelo_palomas:
         return 0.5, "medio"
+
+    if not clima:
+        clima = {"temperatura": 15.0, "precipitacion": 0.0, "viento": 5.0, "humedad": 70.0}
+
+    temp = clima.get("temperatura") or 15.0
+    prec = clima.get("precipitacion") or 0.0
+    viento = clima.get("viento") or 5.0
+    humedad = clima.get("humedad") or 70.0
 
     feats = {
         "dia_semana": dia_semana,
         "es_fin_de_semana": int(dia_semana >= 5),
+        "temp": temp,
+        "precipitacion": prec,
+        "viento": viento,
+        "humedad": humedad,
+        "llueve": 1 if prec > 0.5 else 0,
+        "nieva": 1 if temp < 0 and prec > 0 else 0,
     }
     feats.update(features_temporales(hora, mes))
     feats.update(features_urbanas(lat, lng, urban_features))
@@ -137,11 +186,13 @@ async def get_zones():
         offset += page_size
 
     ahora = datetime.now()
+    clima = await get_clima_actual()
     zones = []
     for z in all_zones:
         prob, nivel = predecir_riesgo(
             z["lat"], z["lng"],
-            ahora.hour, ahora.month, ahora.weekday()
+            ahora.hour, ahora.month, ahora.weekday(),
+            clima
         )
         zones.append({
             "lat": z["lat"],
@@ -173,9 +224,10 @@ async def get_route(
     route_waypoints = [{"lat": c[1], "lng": c[0]} for c in coords]
 
     ahora = datetime.now()
+    clima = await get_clima_actual()
     probs = []
     for wp in route_waypoints[::5]:
-        prob, _ = predecir_riesgo(wp["lat"], wp["lng"], ahora.hour, ahora.month, ahora.weekday())
+        prob, _ = predecir_riesgo(wp["lat"], wp["lng"], ahora.hour, ahora.month, ahora.weekday(), clima)
         probs.append(prob)
 
     prob_media = float(np.mean(probs)) if probs else 0.5
@@ -192,7 +244,8 @@ async def get_route(
 @app.get("/predict")
 async def predict_risk(lat: float, lng: float):
     ahora = datetime.now()
-    prob, nivel = predecir_riesgo(lat, lng, ahora.hour, ahora.month, ahora.weekday())
+    clima = await get_clima_actual()
+    prob, nivel = predecir_riesgo(lat, lng, ahora.hour, ahora.month, ahora.weekday(), clima)
     urban = features_urbanas(lat, lng, urban_features)
     temporal = features_temporales(ahora.hour, ahora.month)
 
@@ -210,7 +263,12 @@ async def predict_risk(lat: float, lng: float):
         "estaciones_1km": urban.get("estaciones_1000m", 0),
         "basura_1km": urban.get("basura_1000m", 0),
         "parques_1km": urban.get("parques_1000m", 0),
+        "clima": clima,
     }
+
+@app.get("/weather")
+async def get_weather():
+    return await get_clima_actual()
 
 @app.get("/health")
 async def health():
